@@ -21,9 +21,15 @@ cd /home/yauhen/slupsk_apartments
 
 ---
 
-## ☁️ Деплой на Vercel и совместный доступ (Вы + Девушка)
+## 🌐 Рабочий сайт онлайн (GitHub Pages)
 
-Приложение полностью готово к моментальному развертыванию на **Vercel** или **Netlify**:
+Сайт опубликован и доступен без блокировок и без VPN:
+- 📱 **Ссылка:** [https://yauhenzhebryk.github.io/slupsk-apartments/](https://yauhenzhebryk.github.io/slupsk-apartments/)
+- 📦 **Репозиторий:** [https://github.com/YauhenZhebryk/slupsk-apartments](https://github.com/YauhenZhebryk/slupsk-apartments)
+
+---
+
+## ☁️ Альтернативный деплой на Vercel / Netlify
 
 ### Вариант 1: Через Vercel CLI (1 команда)
 ```bash
