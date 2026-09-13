@@ -1,0 +1,1246 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Квартиры в Слупске | Трекер аренды</title>
+  <!-- Precompiled zero-overhead CSS -->
+  <link rel="stylesheet" href="./static/app.css">
+  <!-- Production Vue 3 -->
+  <script src="./static/vue.global.prod.js"></script>
+  <!-- Live Cloud & Local Sync Engine -->
+  <script src="./static/sync.js"></script>
+</head>
+<body>
+  <div id="app" v-cloak>
+    
+    <!-- Clean Minimal Header -->
+    <header class="top-header">
+      <div class="app-container top-header-inner">
+        <div class="brand-group">
+          <div class="brand-icon">🏠</div>
+          <div>
+            <h1 class="brand-title">
+              Квартиры в Слупске
+              <span class="count-badge">{{ filteredApartments.length }}</span>
+            </h1>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <!-- Live Sync Status Pill -->
+          <button @click="openSyncModal" class="sync-indicator" :title="'Режим синхронизации: ' + syncStatusText">
+            <span class="sync-dot" :class="syncEngineStatus"></span>
+            <span>{{ syncStatusShort }}</span>
+          </button>
+
+          <!-- Add Button -->
+          <button @click="openAddModal" class="btn btn-primary btn-sm">
+            <span>+</span>
+            <span>Добавить</span>
+          </button>
+
+          <!-- Sync & Export Settings Button -->
+          <button @click="openSyncModal" class="icon-btn" title="Настройки и синхронизация для пары">
+            ⚙️
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="app-container">
+      
+      <!-- Filters and Search Toolbar -->
+      <section class="controls-card">
+        
+        <!-- Horizontal Scrollable Status Chips (Touch Friendly) -->
+        <div class="status-scroll-container">
+          <button 
+            v-for="tab in statusTabs" 
+            :key="tab.id"
+            @click="activeStatusTab = tab.id"
+            class="status-chip"
+            :class="{ active: activeStatusTab === tab.id }"
+          >
+            <span>{{ tab.label }}</span>
+            <span class="chip-count">{{ getStatusCount(tab.id) }}</span>
+          </button>
+        </div>
+
+        <!-- Search Bar and Quick Dropdowns -->
+        <div class="search-filter-row">
+          <div class="search-input-wrapper">
+            <span class="search-icon">🔍</span>
+            <input 
+              type="text" 
+              :value="searchQuery"
+              @input="onSearchInput"
+              placeholder="Поиск по улице, району или заметкам..." 
+              class="search-input"
+            >
+            <button v-if="searchQuery" @click="searchQuery = ''; debouncedSearch = ''" class="search-clear-btn" title="Очистить">
+              ✕
+            </button>
+          </div>
+
+          <div class="filter-selects-wrapper">
+            <!-- Rooms filter -->
+            <select v-model="filterRooms" class="custom-select">
+              <option value="all">Комнаты: Все</option>
+              <option value="1">1 комната</option>
+              <option value="2">2 комнаты</option>
+              <option value="3">3+ комнаты</option>
+            </select>
+
+            <!-- Sorting -->
+            <select v-model="sortBy" class="custom-select">
+              <option value="user_rating_desc">⭐ Мой рейтинг (лучшие)</option>
+              <option value="price_asc">💰 Сначала дешевле</option>
+              <option value="price_desc">💎 Сначала дороже</option>
+              <option value="score_desc">🤖 По алгоритму</option>
+              <option value="area_desc">📐 По площади</option>
+              <option value="created_at_desc">🕒 Сначала новые</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <!-- Empty State -->
+      <div v-if="filteredApartments.length === 0" style="text-align: center; padding: 60px 20px; background: white; border-radius: 16px; border: 1px solid var(--color-border); margin: 20px 0;">
+        <div style="font-size: 40px; margin-bottom: 12px;">🔍</div>
+        <h3 style="font-size: 17px; font-weight: 700; margin-bottom: 6px;">Ничего не найдено</h3>
+        <p style="color: var(--color-text-muted); font-size: 14px; max-width: 400px; margin: 0 auto 20px auto;">
+          Попробуйте сбросить поисковый запрос или переключить статус в фильтрах сверху.
+        </p>
+        <button @click="resetFilters" class="btn btn-secondary btn-sm">
+          Сбросить фильтры
+        </button>
+      </div>
+
+      <!-- APARTMENTS GRID -->
+      <div v-else class="apartments-grid">
+        <article 
+          v-for="apt in filteredApartments" 
+          :key="apt.id" 
+          class="apt-card"
+        >
+          <!-- Card Image & Top Overlays -->
+          <div class="card-media">
+            <img 
+              :src="getCardPhoto(apt)" 
+              :alt="apt.title" 
+              class="card-img"
+              loading="lazy"
+              decoding="async"
+              @error="handleImgError"
+            >
+
+            <!-- Top Left Badges (Source & District) -->
+            <div class="card-top-badges">
+              <span class="source-badge" :class="apt.source || 'other'">
+                {{ (apt.source || 'other').toUpperCase() }}
+              </span>
+              <span v-if="apt.district" class="district-badge">
+                📍 {{ apt.district }}
+              </span>
+            </div>
+
+            <!-- Top Right Heart Button (Favorite) -->
+            <button 
+              @click.stop="toggleFavorite(apt)" 
+              class="fav-btn"
+              :class="{ 'is-fav': apt.status === 'favorite' }"
+              :title="apt.status === 'favorite' ? 'Убрать из избранного' : 'Добавить в избранное'"
+            >
+              {{ apt.status === 'favorite' ? '❤️' : '🤍' }}
+            </button>
+
+            <!-- Bottom Price Overlay -->
+            <div class="card-price-overlay">
+              <div>
+                <div style="font-size: 11px; opacity: 0.85; text-transform: uppercase; font-weight: 600;">Итого в месяц</div>
+                <div class="price-total-text">
+                  {{ apt.price_total ? formatPrice(apt.price_total) + ' zł' : 'По запросу' }}
+                </div>
+              </div>
+              <div class="price-sub-text">
+                <span v-if="apt.price_base">{{ formatPrice(apt.price_base) }} zł аренда</span>
+                <span v-if="apt.price_admin"><br>+ {{ formatPrice(apt.price_admin) }} zł czynsz</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Rating Bar: Interactive Stars & Algorithm Badge -->
+          <div class="card-rating-bar">
+            <!-- User 5 Stars -->
+            <div class="stars-interactive" title="Нажмите звезду, чтобы поставить оценку (для вас и девушки)">
+              <button 
+                v-for="star in 5" 
+                :key="star"
+                type="button"
+                class="star-btn"
+                :class="{ active: star <= (apt.user_rating || 0) }"
+                @click.stop="setUserRating(apt, star)"
+              >
+                ★
+              </button>
+              <span v-if="apt.user_rating > 0" style="font-size: 11px; font-weight: 700; color: #b45309; margin-left: 4px;">
+                {{ apt.user_rating }}/5
+              </span>
+            </div>
+
+            <!-- Algorithm Score -->
+            <button 
+              @click.stop="openScoreModal(apt)"
+              class="algorithm-score-badge"
+              :class="getScoreClass(apt.score)"
+              title="Нажмите для прозрачной детализации расчета"
+            >
+              <span>🤖 {{ apt.score || 50 }}/100</span>
+            </button>
+          </div>
+
+          <!-- Card Content Body -->
+          <div class="card-body">
+            <div>
+              <!-- Title & External Link -->
+              <div class="card-title-row">
+                <h2 class="card-title" @click="openViewModal(apt)">
+                  {{ apt.title }}
+                </h2>
+                <a 
+                  v-if="apt.url" 
+                  :href="apt.url" 
+                  target="_blank" 
+                  rel="noopener" 
+                  class="link-out-btn" 
+                  title="Открыть оригинальное объявление"
+                >
+                  ↗
+                </a>
+              </div>
+
+              <!-- Main Parameters Chips -->
+              <div class="spec-chips-row" style="margin: 10px 0 8px 0;">
+                <span class="spec-chip">🚪 {{ apt.rooms }} комн.</span>
+                <span v-if="apt.area" class="spec-chip">📐 {{ apt.area }} м²</span>
+                <span v-if="apt.floor" class="spec-chip">🪜 Этаж: {{ apt.floor }}</span>
+                <span v-if="apt.has_balcony" class="spec-chip" style="color: #047857; background: #ecfdf5;">🌿 Балкон</span>
+                <span v-if="apt.has_elevator" class="spec-chip" style="color: #0369a1; background: #f0f9ff;">🛗 Лифт</span>
+              </div>
+
+              <!-- Heating (Ogrzewanie) Badge -->
+              <div style="margin-bottom: 8px;">
+                <span class="heating-badge" :class="getHeatingClass(apt.heating)">
+                  🔥 {{ apt.heating || 'Отопление не указано' }}
+                </span>
+              </div>
+
+              <!-- Pitfalls / Risk Alert -->
+              <div v-if="apt.pitfalls && apt.pitfalls.length > 0" class="pitfalls-box" style="margin-bottom: 8px;">
+                <div class="pitfalls-title">
+                  <span>⚠️</span>
+                  <span>Внимание:</span>
+                </div>
+                <div v-for="(p, pi) in apt.pitfalls.slice(0, 2)" :key="pi" class="line-clamp-1">
+                  • {{ p }}
+                </div>
+                <div v-if="apt.pitfalls.length > 2" @click="openViewModal(apt)" style="font-size: 11px; font-weight: 700; cursor: pointer; margin-top: 2px;">
+                  + еще {{ apt.pitfalls.length - 2 }} нюанса...
+                </div>
+              </div>
+
+              <!-- Notes / Phone Contact Section -->
+              <div class="note-box">
+                <div class="note-header">
+                  <span>Заметка / Контакт</span>
+                  <button @click="editNotesInline(apt)" class="note-edit-btn">
+                    ✎ Изменить
+                  </button>
+                </div>
+                <div v-if="apt.notes" class="note-text">
+                  "{{ apt.notes }}"
+                </div>
+                <div v-else style="color: var(--color-text-subtle); font-size: 12px; font-style: italic;">
+                  Заметок нет (нажмите «Изменить»)
+                </div>
+
+                <!-- 1-Tap Mobile Call Button -->
+                <div v-if="apt.contact_phone" style="margin-top: 4px;">
+                  <a :href="'tel:' + apt.contact_phone" class="contact-phone-link">
+                    <span>📞 {{ apt.contact_phone }}</span>
+                    <span v-if="apt.contact_name" style="font-size: 11px; color: var(--color-text-muted); font-weight: 500;">({{ apt.contact_name }})</span>
+                  </a>
+                </div>
+                <div v-if="apt.viewing_date" style="font-size: 12px; font-weight: 700; color: #0284c7; margin-top: 3px;">
+                  📅 Просмотр: {{ apt.viewing_date }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Card Footer: Status Selector & Actions -->
+            <div class="card-footer">
+              <select 
+                :value="apt.status" 
+                @change="quickChangeStatus(apt, $event.target.value)"
+                class="status-dropdown"
+                :class="'status-' + (apt.status || 'new')"
+              >
+                <option value="new">🆕 Новое</option>
+                <option value="to_contact">📞 Связаться</option>
+                <option value="waiting">⏳ Жду ответа</option>
+                <option value="responded">💬 Ответили</option>
+                <option value="viewing">📅 Просмотр</option>
+                <option value="favorite">❤️ Избранное</option>
+                <option value="rejected">❌ Отклонено</option>
+              </select>
+
+              <div class="action-buttons-group">
+                <button @click="openViewModal(apt)" class="icon-btn" title="Подробнее">
+                  👁️
+                </button>
+                <button @click="openEditModal(apt)" class="icon-btn" title="Редактировать">
+                  ✏️
+                </button>
+                <button @click="confirmDelete(apt)" class="icon-btn danger" title="Удалить">
+                  🗑️
+                </button>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </main>
+
+    <!-- MODAL: VIEW FULL DETAILS -->
+    <div v-if="showViewModal && activeApt" class="modal-overlay" @click.self="showViewModal = false">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div>
+            <span class="source-badge" :class="activeApt.source || 'other'" style="margin-right: 6px;">
+              {{ (activeApt.source || 'other').toUpperCase() }}
+            </span>
+            <span style="font-size: 13px; font-weight: 600; color: var(--color-text-muted);">
+              📍 {{ activeApt.district || activeApt.address || 'Слупск' }}
+            </span>
+          </div>
+          <button @click="showViewModal = false" class="modal-close-btn">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <h2 style="font-size: 18px; font-weight: 800; margin-bottom: 12px; line-height: 1.3;">
+            {{ activeApt.title }}
+          </h2>
+
+          <!-- Photo Gallery (Thumbnails) -->
+          <div v-if="activeApt.photos && activeApt.photos.length > 0" style="margin-bottom: 16px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; border-radius: 12px; overflow: hidden;">
+              <img 
+                v-for="(photo, pidx) in activeApt.photos.slice(0, 4)" 
+                :key="pidx" 
+                :src="photo" 
+                style="width: 100%; height: 110px; object-fit: cover; border-radius: 8px;"
+                @error="handleImgError"
+              >
+            </div>
+            <div v-if="activeApt.photos.length > 4" style="text-align: right; font-size: 12px; color: var(--color-text-subtle); margin-top: 4px;">
+              Всего {{ activeApt.photos.length }} фото в объявлении
+            </div>
+          </div>
+
+          <!-- Financial Breakdown Box -->
+          <div style="background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 14px; margin-bottom: 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div>
+              <div style="font-size: 11px; font-weight: 700; color: #3730a3; text-transform: uppercase;">Итого в месяц</div>
+              <div style="font-size: 22px; font-weight: 900; color: #312e81;">
+                {{ activeApt.price_total ? formatPrice(activeApt.price_total) + ' zł' : '-' }}
+              </div>
+            </div>
+            <div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Аренда чистая</div>
+              <div style="font-size: 16px; font-weight: 700;">
+                {{ activeApt.price_base ? formatPrice(activeApt.price_base) + ' zł' : '-' }}
+              </div>
+            </div>
+            <div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Чинш (Czynsz)</div>
+              <div style="font-size: 16px; font-weight: 700;">
+                {{ activeApt.price_admin ? formatPrice(activeApt.price_admin) + ' zł' : '-' }}
+              </div>
+            </div>
+            <div>
+              <div style="font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase;">Залог (Kaucja)</div>
+              <div style="font-size: 16px; font-weight: 700;">
+                {{ activeApt.deposit ? formatPrice(activeApt.deposit) + ' zł' : '-' }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Specs List -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; background: #f8fafc; padding: 12px; border-radius: 12px; border: 1px solid var(--color-border); margin-bottom: 16px;">
+            <div>🚪 <strong>Комнат:</strong> {{ activeApt.rooms }}</div>
+            <div>📐 <strong>Площадь:</strong> {{ activeApt.area }} м²</div>
+            <div>🪜 <strong>Этаж:</strong> {{ activeApt.floor || 'Не указан' }}</div>
+            <div>🔥 <strong>Отопление:</strong> {{ activeApt.heating }}</div>
+            <div>🌿 <strong>Балкон:</strong> {{ activeApt.has_balcony ? 'Да' : 'Нет' }}</div>
+            <div>🛗 <strong>Лифт:</strong> {{ activeApt.has_elevator ? 'Да' : 'Нет' }}</div>
+            <div>🐾 <strong>Питомцы:</strong> {{ activeApt.pets_allowed }}</div>
+            <div>📄 <strong>Договор:</strong> {{ activeApt.contract_type }}</div>
+          </div>
+
+          <!-- Pitfalls List -->
+          <div v-if="activeApt.pitfalls && activeApt.pitfalls.length > 0" style="background: #fff1f2; border: 1px solid #fecdd3; border-radius: 12px; padding: 12px; margin-bottom: 16px;">
+            <div style="font-size: 12px; font-weight: 800; color: #9f1239; margin-bottom: 6px;">
+              ⚠️ ПОДВОДНЫЕ КАМНИ И РИСКИ:
+            </div>
+            <ul style="padding-left: 18px; font-size: 13px; color: #881337; line-height: 1.5;">
+              <li v-for="(item, i) in activeApt.pitfalls" :key="i">{{ item }}</li>
+            </ul>
+          </div>
+
+          <!-- Pros & Cons -->
+          <div v-if="(activeApt.pros && activeApt.pros.length > 0) || (activeApt.cons && activeApt.cons.length > 0)" style="display: grid; grid-template-columns: 1fr; gap: 10px; margin-bottom: 16px;">
+            <div v-if="activeApt.pros && activeApt.pros.length > 0" style="background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 12px;">
+              <div style="font-size: 12px; font-weight: 800; color: #065f46; margin-bottom: 6px;">✅ ПЛЮСЫ:</div>
+              <ul style="padding-left: 18px; font-size: 13px; color: #064e3b; line-height: 1.4;">
+                <li v-for="(p, pi) in activeApt.pros" :key="pi">{{ p }}</li>
+              </ul>
+            </div>
+            <div v-if="activeApt.cons && activeApt.cons.length > 0" style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 12px; padding: 12px;">
+              <div style="font-size: 12px; font-weight: 800; color: #92400e; margin-bottom: 6px;">⚡ МИНУСЫ:</div>
+              <ul style="padding-left: 18px; font-size: 13px; color: #78350f; line-height: 1.4;">
+                <li v-for="(c, ci) in activeApt.cons" :key="ci">{{ c }}</li>
+              </ul>
+            </div>
+          </div>
+
+          <!-- Contact & Notes in View Modal -->
+          <div style="background: #f8fafc; border: 1px solid var(--color-border); border-radius: 12px; padding: 12px;">
+            <div style="font-size: 12px; font-weight: 800; color: var(--color-text-muted); margin-bottom: 6px;">
+              📞 КОНТАКТЫ И ВАША ЗАМЕТКА:
+            </div>
+            <div v-if="activeApt.contact_phone" style="margin-bottom: 6px;">
+              <a :href="'tel:' + activeApt.contact_phone" style="font-size: 15px; font-weight: 700; color: #4338ca; text-decoration: none;">
+                Позвонить: {{ activeApt.contact_phone }} {{ activeApt.contact_name ? '(' + activeApt.contact_name + ')' : '' }}
+              </a>
+            </div>
+            <div v-if="activeApt.notes" style="font-size: 13px; color: var(--color-text-main); font-style: italic; background: white; padding: 8px; border-radius: 6px; border: 1px solid var(--color-border);">
+              "{{ activeApt.notes }}"
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <a v-if="activeApt.url" :href="activeApt.url" target="_blank" class="btn btn-secondary btn-sm" style="margin-right: auto;">
+            Открыть оригинал ↗
+          </a>
+          <button @click="openEditModal(activeApt); showViewModal = false;" class="btn btn-secondary btn-sm">
+            Редактировать
+          </button>
+          <button @click="showViewModal = false" class="btn btn-primary btn-sm">
+            Закрыть
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: ADD APARTMENT -->
+    <div v-if="showAddModal" class="modal-overlay" @click.self="showAddModal = false">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">Добавить вариант квартиры</h3>
+          <button @click="showAddModal = false" class="modal-close-btn">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- URL Parse Section (works when local Flask is active) -->
+          <div v-if="isFlaskActive" style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border);">
+            <label class="form-label">Ссылка Otodom или OLX (Авто-парсинг)</label>
+            <div style="display: flex; gap: 8px;">
+              <input 
+                v-model="newAptUrl" 
+                type="url" 
+                placeholder="https://www.otodom.pl/..." 
+                class="form-input" 
+                style="flex: 1;"
+              >
+              <button 
+                @click="autoParseUrl" 
+                :disabled="isParsing || !newAptUrl" 
+                class="btn btn-primary btn-sm"
+              >
+                {{ isParsing ? 'Парсинг...' : 'Распарсить' }}
+              </button>
+            </div>
+            <div style="font-size: 11px; color: var(--color-text-subtle); margin-top: 4px;">
+              Автоматически достанет фото, чинш, этаж и отопление.
+            </div>
+          </div>
+
+          <!-- Manual Form -->
+          <div>
+            <div class="form-group">
+              <label class="form-label">Заголовок / Название *</label>
+              <input v-model="manualForm.title" type="text" placeholder="2-комнатная квартира, ул. Szczecińska" class="form-input">
+            </div>
+
+            <div class="form-grid-2 form-group">
+              <div>
+                <label class="form-label">Район / Город</label>
+                <input v-model="manualForm.district" type="text" placeholder="Centrum / Zatorze" class="form-input">
+              </div>
+              <div>
+                <label class="form-label">Улица / Адрес</label>
+                <input v-model="manualForm.address" type="text" placeholder="ul. Banacha" class="form-input">
+              </div>
+            </div>
+
+            <div class="form-grid-3 form-group">
+              <div>
+                <label class="form-label">Аренда (zł)</label>
+                <input v-model.number="manualForm.price_base" type="number" placeholder="2000" class="form-input">
+              </div>
+              <div>
+                <label class="form-label">Czynsz (zł)</label>
+                <input v-model.number="manualForm.price_admin" type="number" placeholder="600" class="form-input">
+              </div>
+              <div>
+                <label class="form-label">Залог (Kaucja)</label>
+                <input v-model.number="manualForm.deposit" type="number" placeholder="3000" class="form-input">
+              </div>
+            </div>
+
+            <div class="form-grid-3 form-group">
+              <div>
+                <label class="form-label">Комнат</label>
+                <input v-model.number="manualForm.rooms" type="number" placeholder="2" class="form-input">
+              </div>
+              <div>
+                <label class="form-label">Площадь (м²)</label>
+                <input v-model.number="manualForm.area" type="number" placeholder="45" class="form-input">
+              </div>
+              <div>
+                <label class="form-label">Отопление</label>
+                <select v-model="manualForm.heating" class="form-select">
+                  <option value="miejskie (centralne)">Miejskie (городское)</option>
+                  <option value="gazowe">Gazowe (газовое)</option>
+                  <option value="elektryczne ⚡">Elektryczne ⚡ (дорого!)</option>
+                  <option value="piec / węgiel ⚠️">Piec ⚠️ (печь)</option>
+                  <option value="nieznane">Неизвестно</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Ссылка на объявление (Otodom / OLX)</label>
+              <input v-model="manualForm.url" type="url" placeholder="https://..." class="form-input">
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">Телефон и заметка</label>
+              <input v-model="manualForm.contact_phone" type="text" placeholder="Телефон: +48..." class="form-input" style="margin-bottom: 6px;">
+              <textarea v-model="manualForm.notes" rows="2" placeholder="Заметка: свободна с октября, можно с котиком..." class="form-textarea"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button @click="showAddModal = false" class="btn btn-secondary btn-sm">Отмена</button>
+          <button @click="submitManualForm" class="btn btn-primary btn-sm">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: EDIT APARTMENT -->
+    <div v-if="showEditModal && editForm" class="modal-overlay" @click.self="showEditModal = false">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">Редактировать #{{ editForm.id }}</h3>
+          <button @click="showEditModal = false" class="modal-close-btn">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">Заголовок</label>
+            <input v-model="editForm.title" type="text" class="form-input">
+          </div>
+
+          <div class="form-grid-2 form-group">
+            <div>
+              <label class="form-label">Район</label>
+              <input v-model="editForm.district" type="text" class="form-input">
+            </div>
+            <div>
+              <label class="form-label">Адрес</label>
+              <input v-model="editForm.address" type="text" class="form-input">
+            </div>
+          </div>
+
+          <div class="form-grid-3 form-group">
+            <div>
+              <label class="form-label">Аренда (zł)</label>
+              <input v-model.number="editForm.price_base" type="number" class="form-input">
+            </div>
+            <div>
+              <label class="form-label">Czynsz (zł)</label>
+              <input v-model.number="editForm.price_admin" type="number" class="form-input">
+            </div>
+            <div>
+              <label class="form-label">ИТОГО (zł)</label>
+              <input v-model.number="editForm.price_total" type="number" class="form-input" style="font-weight: 700; border-color: var(--color-primary);">
+            </div>
+          </div>
+
+          <div class="form-grid-3 form-group">
+            <div>
+              <label class="form-label">Комнат</label>
+              <input v-model.number="editForm.rooms" type="number" class="form-input">
+            </div>
+            <div>
+              <label class="form-label">Площадь (м²)</label>
+              <input v-model.number="editForm.area" type="number" class="form-input">
+            </div>
+            <div>
+              <label class="form-label">Этаж</label>
+              <input v-model="editForm.floor" type="text" class="form-input">
+            </div>
+          </div>
+
+          <div class="form-grid-2 form-group">
+            <div>
+              <label class="form-label">Отопление</label>
+              <input v-model="editForm.heating" type="text" class="form-input">
+            </div>
+            <div>
+              <label class="form-label">Статус</label>
+              <select v-model="editForm.status" class="form-select">
+                <option value="new">🆕 Новое</option>
+                <option value="to_contact">📞 Надо связаться</option>
+                <option value="waiting">⏳ Жду ответа</option>
+                <option value="responded">💬 Ответили</option>
+                <option value="viewing">📅 Просмотр назначен</option>
+                <option value="favorite">❤️ Избранное</option>
+                <option value="rejected">❌ Отклонено</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-grid-2 form-group">
+            <div>
+              <label class="form-label">Телефон владельца</label>
+              <input v-model="editForm.contact_phone" type="text" placeholder="+48..." class="form-input">
+            </div>
+            <div>
+              <label class="form-label">Дата просмотра</label>
+              <input v-model="editForm.viewing_date" type="text" placeholder="Чт, 16:00" class="form-input">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Заметка для этой квартиры</label>
+            <textarea v-model="editForm.notes" rows="3" class="form-textarea" placeholder="Договоренности, впечатления, контакты..."></textarea>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button @click="showEditModal = false" class="btn btn-secondary btn-sm">Отмена</button>
+          <button @click="saveEditForm" class="btn btn-primary btn-sm">Сохранить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: SYNC & CLOUD SETTINGS (FOR USER & GIRLFRIEND) -->
+    <div v-if="showSyncModal" class="modal-overlay" @click.self="showSyncModal = false">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">⚙️ Совместная синхронизация (Пара)</h3>
+          <button @click="showSyncModal = false" class="modal-close-btn">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- Status Banner -->
+          <div style="background: #f8fafc; border: 1px solid var(--color-border); border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+            <div style="font-size: 12px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; margin-bottom: 4px;">Текущий режим:</div>
+            <div style="font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+              <span class="sync-dot" :class="syncEngineStatus"></span>
+              <span>{{ syncStatusDescription }}</span>
+            </div>
+          </div>
+
+          <!-- Cloud Provider Tabs -->
+          <div style="display: flex; gap: 8px; margin-bottom: 14px;">
+            <button 
+              type="button" 
+              @click="cloudConfig.provider = 'supabase'"
+              class="btn btn-sm" 
+              :class="cloudConfig.provider === 'supabase' ? 'btn-primary' : 'btn-secondary'"
+              style="flex: 1;"
+            >
+              ⚡ Supabase (Проще и быстрее)
+            </button>
+            <button 
+              type="button" 
+              @click="cloudConfig.provider = 'firebase'"
+              class="btn btn-sm" 
+              :class="cloudConfig.provider === 'firebase' ? 'btn-primary' : 'btn-secondary'"
+              style="flex: 1;"
+            >
+              🔥 Firebase
+            </button>
+          </div>
+
+          <!-- Supabase Setup -->
+          <div v-if="cloudConfig.provider === 'supabase'" style="margin-bottom: 18px;">
+            <div class="form-group">
+              <label class="form-label">Supabase Project URL</label>
+              <input 
+                v-model="cloudConfig.supabaseUrl" 
+                type="text" 
+                placeholder="https://xyzcompany.supabase.co" 
+                class="form-input"
+              >
+            </div>
+            <div class="form-group">
+              <label class="form-label">Supabase Anon Public Key</label>
+              <input 
+                v-model="cloudConfig.supabaseKey" 
+                type="text" 
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." 
+                class="form-input"
+              >
+            </div>
+            <div style="background: #f1f5f9; padding: 12px; border-radius: 8px; font-size: 12px; line-height: 1.4; color: var(--color-text-muted); margin-bottom: 8px;">
+              💡 <strong>3 простых шага в Supabase (1 минута):</strong><br>
+              1. Войдите на <a href="https://supabase.com" target="_blank" style="color: var(--color-primary); font-weight: 700;">supabase.com</a> через GitHub или Google.<br>
+              2. Нажмите <strong>New Project</strong> (имя, например, <code>slupsk</code>).<br>
+              3. В меню <strong>SQL Editor</strong> вставьте SQL-код (кнопка ниже) и нажмите <strong>Run</strong>.<br>
+              4. В меню <strong>Project Settings → API</strong> скопируйте Project URL и anon key сюда!
+            </div>
+            <button @click="copySupabaseSql" type="button" class="btn btn-secondary btn-sm" style="width: 100%;">
+              {{ sqlCopied ? '✅ SQL скопирован в буфер!' : '📋 Скопировать готовый SQL для Supabase' }}
+            </button>
+          </div>
+
+          <!-- Firebase Realtime DB Setup -->
+          <div v-else style="margin-bottom: 18px;">
+            <label class="form-label">URL базы данных Firebase Realtime Database</label>
+            <input 
+              v-model="cloudConfig.firebaseUrl" 
+              type="text" 
+              placeholder="https://your-project-default-rtdb.firebaseio.com" 
+              class="form-input"
+            >
+            <div style="font-size: 12px; color: var(--color-text-muted); margin-top: 6px; line-height: 1.4;">
+              💡 <strong>Как подключить Firebase:</strong><br>
+              Вставьте сюда URL вашей Realtime Database и нажмите «Сохранить и подключить».
+            </div>
+          </div>
+
+          <!-- Share with Girlfriend Button -->
+          <div style="margin-bottom: 18px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 14px;">
+            <div style="font-size: 13px; font-weight: 800; color: #065f46; margin-bottom: 4px;">
+              🔗 Поделиться с девушкой
+            </div>
+            <p style="font-size: 12px; color: #064e3b; margin-bottom: 10px;">
+              Скопируйте готовую ссылку: когда она откроет её на своем смартфоне, она сразу подключится к вашей общей базе!
+            </p>
+            <button @click="copyShareLink" class="btn btn-primary btn-sm" style="width: 100%;">
+              {{ copySuccess ? '✅ Ссылка скопирована!' : 'Скопировать ссылку для девушки' }}
+            </button>
+          </div>
+
+          <!-- Backup / Restore -->
+          <div>
+            <div class="form-label">Резервная копия данных</div>
+            <div style="display: flex; gap: 8px;">
+              <button @click="exportBackup" class="btn btn-secondary btn-sm" style="flex: 1;">
+                📥 Скачать JSON
+              </button>
+              <label class="btn btn-secondary btn-sm" style="flex: 1; cursor: pointer;">
+                📤 Загрузить JSON
+                <input type="file" accept=".json" @change="importBackupFile" style="display: none;">
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button @click="showSyncModal = false" class="btn btn-secondary btn-sm">Закрыть</button>
+          <button @click="saveCloudSettings" class="btn btn-primary btn-sm">Сохранить и подключить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: SCORE DETAILS -->
+    <div v-if="showScoreModal && scoreModalApt" class="modal-overlay" @click.self="showScoreModal = false">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">🤖 Детали алгоритма: {{ scoreModalApt.score || 50 }}/100</h3>
+          <button @click="showScoreModal = false" class="modal-close-btn">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div style="font-size: 13px; color: var(--color-text-muted); margin-bottom: 14px;">
+            Расчет баллов на основе отопления, чинша, бюджета и рисков (район и лифт исключены по вашим критериям):
+          </div>
+
+          <div v-if="scoreModalApt.score_breakdown && scoreModalApt.score_breakdown.length > 0" style="display: flex; flex-direction: column; gap: 6px;">
+            <div 
+              v-for="(f, fi) in scoreModalApt.score_breakdown" 
+              :key="fi"
+              style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 8px; font-size: 13px;"
+              :style="{ background: f.type === 'pos' ? '#ecfdf5' : (f.type === 'neg' ? '#fff1f2' : '#f8fafc') }"
+            >
+              <span>{{ f.label }}</span>
+              <span style="font-weight: 700;" :style="{ color: f.type === 'pos' ? '#047857' : (f.type === 'neg' ? '#b91c1c' : '#475569') }">
+                {{ f.points > 0 ? '+' : '' }}{{ f.points }} б.
+              </span>
+            </div>
+          </div>
+          <div v-else style="font-size: 13px; color: var(--color-text-subtle); text-align: center; padding: 20px;">
+            Нет детализированных факторов для этого варианта.
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button @click="showScoreModal = false" class="btn btn-primary btn-sm">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Vue 3 Application Logic -->
+  <script>
+    const { createApp, ref, computed, onMounted } = Vue;
+
+    createApp({
+      setup() {
+        const apartments = ref([]);
+        const activeStatusTab = ref('all');
+        const searchQuery = ref('');
+        const debouncedSearch = ref('');
+        const filterRooms = ref('all');
+        const sortBy = ref('user_rating_desc');
+        const isFlaskActive = ref(false);
+
+        // Modals
+        const showAddModal = ref(false);
+        const showViewModal = ref(false);
+        const showEditModal = ref(false);
+        const showSyncModal = ref(false);
+        const showScoreModal = ref(false);
+        const scoreModalApt = ref(null);
+        const activeApt = ref(null);
+        const editForm = ref({});
+        const copySuccess = ref(false);
+
+        // Forms
+        const newAptUrl = ref('');
+        const isParsing = ref(false);
+        const manualForm = ref({
+          title: '', district: '', address: '', price_base: null, price_admin: null,
+          deposit: null, rooms: 2, area: null, heating: 'miejskie (centralne)', notes: '',
+          url: '', contact_phone: '', status: 'new'
+        });
+
+        // Cloud sync config state
+        const cloudConfig = ref({
+          provider: window.syncEngine.config.provider || 'supabase',
+          supabaseUrl: window.syncEngine.config.supabaseUrl || '',
+          supabaseKey: window.syncEngine.config.supabaseKey || '',
+          firebaseUrl: window.syncEngine.config.firebaseUrl || ''
+        });
+        const sqlCopied = ref(false);
+
+        const statusTabs = [
+          { id: 'all', label: 'Все' },
+          { id: 'favorite', label: '❤️ Избранное' },
+          { id: 'new', label: '🆕 Новые' },
+          { id: 'to_contact', label: '📞 Связаться' },
+          { id: 'waiting', label: '⏳ Жду ответа' },
+          { id: 'responded', label: '💬 Ответили' },
+          { id: 'viewing', label: '📅 Просмотры' },
+          { id: 'rejected', label: '❌ Отклонено' }
+        ];
+
+        // Debounce search input to avoid re-rendering lag
+        let searchTimeout = null;
+        const onSearchInput = (e) => {
+          searchQuery.value = e.target.value;
+          clearTimeout(searchTimeout);
+          searchTimeout = setTimeout(() => {
+            debouncedSearch.value = searchQuery.value;
+          }, 180);
+        };
+
+        const syncEngineStatus = computed(() => {
+          return window.syncEngine.status || 'offline';
+        });
+
+        const syncStatusShort = computed(() => {
+          if (syncEngineStatus.value === 'live') {
+            return window.syncEngine.syncMode === 'supabase' ? 'Supabase Live' : 'Firebase Live';
+          }
+          if (syncEngineStatus.value === 'local') return 'Raspberry Pi';
+          return 'Офлайн';
+        });
+
+        const syncStatusDescription = computed(() => {
+          if (syncEngineStatus.value === 'live') {
+            if (window.syncEngine.syncMode === 'supabase') {
+              return 'Подключено к Supabase (мгновенная синхронизация для двоих)';
+            }
+            return 'Подключено к Firebase (мгновенная синхронизация для двоих)';
+          }
+          if (syncEngineStatus.value === 'local') return 'Работает через локальный сервер Raspberry Pi';
+          return 'Сохраняется в памяти браузера (LocalStorage)';
+        });
+
+        const getStatusCount = (statusId) => {
+          if (statusId === 'all') return apartments.value.length;
+          return apartments.value.filter(a => a.status === statusId).length;
+        };
+
+        const filteredApartments = computed(() => {
+          let list = apartments.value.slice();
+
+          // Status filter
+          if (activeStatusTab.value !== 'all') {
+            list = list.filter(a => a.status === activeStatusTab.value);
+          }
+
+          // Rooms filter
+          if (filterRooms.value !== 'all') {
+            const r = parseInt(filterRooms.value);
+            if (r >= 3) {
+              list = list.filter(a => (a.rooms || 1) >= 3);
+            } else {
+              list = list.filter(a => (a.rooms || 1) === r);
+            }
+          }
+
+          // Debounced search query
+          if (debouncedSearch.value.trim()) {
+            const q = debouncedSearch.value.toLowerCase().trim();
+            list = list.filter(a => 
+              (a.title && a.title.toLowerCase().includes(q)) ||
+              (a.address && a.address.toLowerCase().includes(q)) ||
+              (a.district && a.district.toLowerCase().includes(q)) ||
+              (a.notes && a.notes.toLowerCase().includes(q))
+            );
+          }
+
+          // Sorting
+          list.sort((a, b) => {
+            if (sortBy.value === 'user_rating_desc') {
+              return (b.user_rating || 0) - (a.user_rating || 0);
+            } else if (sortBy.value === 'price_asc') {
+              return (a.price_total || 999999) - (b.price_total || 999999);
+            } else if (sortBy.value === 'price_desc') {
+              return (b.price_total || 0) - (a.price_total || 0);
+            } else if (sortBy.value === 'score_desc') {
+              return (b.score || 0) - (a.score || 0);
+            } else if (sortBy.value === 'area_desc') {
+              return (b.area || 0) - (a.area || 0);
+            } else if (sortBy.value === 'created_at_desc') {
+              return new Date(b.created_at || 0) - new Date(a.created_at || 0);
+            }
+            return 0;
+          });
+
+          return list;
+        });
+
+        // Interactive Rating
+        const setUserRating = async (apt, stars) => {
+          const next = (apt.user_rating === stars) ? 0 : stars;
+          apt.user_rating = next;
+          await window.syncEngine.updateApartmentField(apt.id, { user_rating: next }, apartments.value);
+        };
+
+        // Quick Status Change
+        const quickChangeStatus = async (apt, newStatus) => {
+          apt.status = newStatus;
+          await window.syncEngine.updateApartmentField(apt.id, { status: newStatus }, apartments.value);
+        };
+
+        // Toggle Favorite
+        const toggleFavorite = async (apt) => {
+          const next = apt.status === 'favorite' ? 'new' : 'favorite';
+          await quickChangeStatus(apt, next);
+        };
+
+        // Inline Notes Editing
+        const editNotesInline = async (apt) => {
+          const current = apt.notes || '';
+          const updated = prompt('Заметка для этой квартиры (видна вам и девушке):', current);
+          if (updated !== null && updated !== current) {
+            apt.notes = updated;
+            await window.syncEngine.updateApartmentField(apt.id, { notes: updated }, apartments.value);
+          }
+        };
+
+        // Modals
+        const openViewModal = (apt) => {
+          activeApt.value = apt;
+          showViewModal.value = true;
+        };
+
+        const openEditModal = (apt) => {
+          editForm.value = JSON.parse(JSON.stringify(apt));
+          showEditModal.value = true;
+        };
+
+        const saveEditForm = async () => {
+          if (!editForm.value.price_total && (editForm.value.price_base || editForm.value.price_admin)) {
+            editForm.value.price_total = (editForm.value.price_base || 0) + (editForm.value.price_admin || 0);
+          }
+          await window.syncEngine.saveApartment(editForm.value, apartments.value);
+          showEditModal.value = false;
+        };
+
+        const openAddModal = () => {
+          newAptUrl.value = '';
+          manualForm.value = {
+            title: '', district: '', address: '', price_base: null, price_admin: null,
+            deposit: null, rooms: 2, area: null, heating: 'miejskie (centralne)', notes: '',
+            url: '', contact_phone: '', status: 'new'
+          };
+          showAddModal.value = true;
+        };
+
+        const submitManualForm = async () => {
+          if (!manualForm.value.title) {
+            alert('Укажите заголовок квартиры');
+            return;
+          }
+          const item = { ...manualForm.value };
+          item.price_total = (item.price_base || 0) + (item.price_admin || 0);
+          await window.syncEngine.saveApartment(item, apartments.value);
+          showAddModal.value = false;
+        };
+
+        const autoParseUrl = async () => {
+          if (!newAptUrl.value) return;
+          isParsing.value = true;
+          try {
+            const res = await fetch('/api/apartments/parse', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: newAptUrl.value })
+            });
+            const data = await res.json();
+            if (data.success && data.apartment) {
+              await window.syncEngine.saveApartment(data.apartment, apartments.value);
+              showAddModal.value = false;
+              openViewModal(data.apartment);
+            } else {
+              alert('Ошибка парсинга: ' + (data.error || 'Проверьте ссылку'));
+            }
+          } catch (e) {
+            alert('Сетевая ошибка при парсинге: ' + e.message);
+          } finally {
+            isParsing.value = false;
+          }
+        };
+
+        const confirmDelete = async (apt) => {
+          if (confirm(`Удалить квартиру "${apt.title}"?`)) {
+            await window.syncEngine.deleteApartment(apt.id, apartments.value);
+            if (activeApt.value && activeApt.value.id === apt.id) {
+              showViewModal.value = false;
+            }
+          }
+        };
+
+        const openScoreModal = (apt) => {
+          scoreModalApt.value = apt;
+          showScoreModal.value = true;
+        };
+
+        const openSyncModal = () => {
+          cloudConfig.value.provider = window.syncEngine.config.provider || 'supabase';
+          cloudConfig.value.supabaseUrl = window.syncEngine.config.supabaseUrl || '';
+          cloudConfig.value.supabaseKey = window.syncEngine.config.supabaseKey || '';
+          cloudConfig.value.firebaseUrl = window.syncEngine.config.firebaseUrl || '';
+          copySuccess.value = false;
+          sqlCopied.value = false;
+          showSyncModal.value = true;
+        };
+
+        const copySupabaseSql = async () => {
+          const sql = `create table if not exists apartments (
+  id bigint primary key,
+  data jsonb not null
+);
+alter table apartments enable row level security;
+create policy "public_all" on apartments for all using (true) with check (true);
+alter publication supabase_realtime add table apartments;`;
+          try {
+            await navigator.clipboard.writeText(sql);
+            sqlCopied.value = true;
+            setTimeout(() => { sqlCopied.value = false; }, 3000);
+          } catch (e) {
+            prompt('Скопируйте SQL для Supabase:', sql);
+          }
+        };
+
+        const saveCloudSettings = async () => {
+          window.syncEngine.saveConfig({
+            provider: cloudConfig.value.provider,
+            supabaseUrl: cloudConfig.value.supabaseUrl.trim(),
+            supabaseKey: cloudConfig.value.supabaseKey.trim(),
+            firebaseUrl: cloudConfig.value.firebaseUrl.trim()
+          });
+          await window.syncEngine.init();
+          const fresh = await window.syncEngine.getApartments();
+          apartments.value = fresh;
+          showSyncModal.value = false;
+        };
+
+        const copyShareLink = async () => {
+          const url = window.syncEngine.getShareUrl();
+          try {
+            await navigator.clipboard.writeText(url);
+            copySuccess.value = true;
+            setTimeout(() => { copySuccess.value = false; }, 3000);
+          } catch (e) {
+            prompt('Скопируйте ссылку:', url);
+          }
+        };
+
+        const exportBackup = () => {
+          window.syncEngine.exportData(apartments.value);
+        };
+
+        const importBackupFile = (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = async (ev) => {
+            const res = await window.syncEngine.importData(ev.target.result);
+            if (res.success) {
+              apartments.value = await window.syncEngine.getApartments();
+              alert(`Успешно импортировано ${res.count} квартир!`);
+              showSyncModal.value = false;
+            } else {
+              alert('Ошибка импорта: ' + res.error);
+            }
+          };
+          reader.readAsText(file);
+        };
+
+        const resetFilters = () => {
+          activeStatusTab.value = 'all';
+          searchQuery.value = '';
+          debouncedSearch.value = '';
+          filterRooms.value = 'all';
+        };
+
+        const formatPrice = (val) => {
+          if (!val) return '0';
+          return Math.round(val).toLocaleString('ru-RU');
+        };
+
+        const getCardPhoto = (apt) => {
+          if (apt.photos && apt.photos.length > 0) {
+            return apt.photos[0];
+          }
+          return 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=600&q=80';
+        };
+
+        const handleImgError = (e) => {
+          e.target.src = 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=600&q=80';
+        };
+
+        const getHeatingClass = (heating) => {
+          const h = (heating || '').toLowerCase();
+          if (h.includes('miejsk')) return 'miejskie';
+          if (h.includes('gazow')) return 'gazowe';
+          if (h.includes('elektr')) return 'elektryczne';
+          if (h.includes('piec') || h.includes('węgl') || h.includes('wegl')) return 'piec';
+          return 'other';
+        };
+
+        const getScoreClass = (score) => {
+          const s = score || 50;
+          if (s >= 75) return 'high';
+          if (s >= 50) return 'medium';
+          return 'low';
+        };
+
+        onMounted(async () => {
+          // Initialize sync engine
+          await window.syncEngine.init();
+          isFlaskActive.value = (window.syncEngine.syncMode === 'local_flask');
+
+          // Listen for incoming live sync updates (from girlfriend or other tabs)
+          window.syncEngine.onSyncUpdate((newList, source) => {
+            if (source !== 'optimistic') {
+              apartments.value = newList;
+            }
+          });
+
+          // Fetch initial apartments
+          apartments.value = await window.syncEngine.getApartments();
+        });
+
+        return {
+          apartments,
+          activeStatusTab,
+          searchQuery,
+          debouncedSearch,
+          onSearchInput,
+          filterRooms,
+          sortBy,
+          statusTabs,
+          filteredApartments,
+          getStatusCount,
+          setUserRating,
+          quickChangeStatus,
+          toggleFavorite,
+          editNotesInline,
+          showAddModal,
+          showViewModal,
+          showEditModal,
+          showSyncModal,
+          showScoreModal,
+          scoreModalApt,
+          activeApt,
+          editForm,
+          manualForm,
+          newAptUrl,
+          isParsing,
+          isFlaskActive,
+          cloudConfig,
+          copySuccess,
+          syncEngineStatus,
+          syncStatusShort,
+          syncStatusDescription,
+          openViewModal,
+          openEditModal,
+          saveEditForm,
+          openAddModal,
+          submitManualForm,
+          autoParseUrl,
+          confirmDelete,
+          openScoreModal,
+          openSyncModal,
+          saveCloudSettings,
+          copyShareLink,
+          exportBackup,
+          importBackupFile,
+          resetFilters,
+          formatPrice,
+          getCardPhoto,
+          handleImgError,
+          getHeatingClass,
+          getScoreClass
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

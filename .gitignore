@@ -1,0 +1,6 @@
+.vercel
+__pycache__/
+*.py[cod]
+*.log
+*.pid
+data/*.db
