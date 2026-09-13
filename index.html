@@ -126,7 +126,7 @@
           class="apt-card"
         >
           <!-- Card Image & Top Overlays -->
-          <div class="card-media">
+          <div class="card-media" @click="openViewModal(apt)" title="Нажмите для просмотра подробностей о жилье">
             <img 
               :src="getCardPhoto(apt)" 
               :alt="apt.title" 
@@ -154,6 +154,16 @@
               :title="apt.status === 'favorite' ? 'Убрать из избранного' : 'Добавить в избранное'"
             >
               {{ apt.status === 'favorite' ? '❤️' : '🤍' }}
+            </button>
+
+            <!-- Quick Full-Screen Photos Button -->
+            <button 
+              v-if="apt.photos && apt.photos.length > 0"
+              @click.stop="openLightbox(apt, 0)" 
+              class="card-photo-btn"
+              :title="'Смотреть ' + apt.photos.length + ' фото в полном размере'"
+            >
+              <span>📷 {{ apt.photos.length }}</span>
             </button>
 
             <!-- Bottom Price Overlay -->
@@ -333,19 +343,47 @@
             {{ activeApt.title }}
           </h2>
 
-          <!-- Photo Gallery (Thumbnails) -->
-          <div v-if="activeApt.photos && activeApt.photos.length > 0" style="margin-bottom: 16px;">
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 8px; border-radius: 12px; overflow: hidden;">
-              <img 
+          <!-- Photo Gallery (Thumbnails & Fullscreen Lightbox) -->
+          <div v-if="activeApt.photos && activeApt.photos.length > 0" class="modal-gallery-container">
+            <div class="modal-gallery-header">
+              <span class="modal-gallery-title">📸 Фотографии ({{ activeApt.photos.length }})</span>
+              <button 
+                type="button" 
+                @click="openLightbox(activeApt, 0)" 
+                class="modal-gallery-fullscreen-btn"
+                title="Смотреть все фото в полном размере"
+              >
+                <span>🔍 Во весь экран</span>
+              </button>
+            </div>
+            <div class="modal-gallery-grid">
+              <div 
                 v-for="(photo, pidx) in activeApt.photos.slice(0, 4)" 
                 :key="pidx" 
-                :src="photo" 
-                style="width: 100%; height: 110px; object-fit: cover; border-radius: 8px;"
-                @error="handleImgError"
+                class="modal-gallery-item"
+                @click="openLightbox(activeApt, pidx)"
+                :title="'Открыть фото ' + (pidx + 1) + ' в полном размере'"
               >
+                <img 
+                  :src="photo" 
+                  class="modal-gallery-thumb" 
+                  loading="lazy" 
+                  @error="handleImgError"
+                >
+                <div class="gallery-zoom-hint">
+                  <span>🔍</span>
+                </div>
+                <div 
+                  v-if="pidx === 3 && activeApt.photos.length > 4" 
+                  class="gallery-more-overlay"
+                >
+                  <span class="more-count">+{{ activeApt.photos.length - 3 }}</span>
+                  <span class="more-label">еще фото</span>
+                </div>
+              </div>
             </div>
-            <div v-if="activeApt.photos.length > 4" style="text-align: right; font-size: 12px; color: var(--color-text-subtle); margin-top: 4px;">
-              Всего {{ activeApt.photos.length }} фото в объявлении
+            <div class="modal-gallery-footer-hint">
+              <span>💡 Нажмите на любое фото, чтобы открыть его в полный размер</span>
             </div>
           </div>
 
@@ -809,11 +847,106 @@
       </div>
     </div>
 
+    <!-- FULLSCREEN PHOTO LIGHTBOX -->
+    <div 
+      v-if="showLightbox" 
+      class="lightbox-overlay" 
+      @click="closeLightbox"
+    >
+      <!-- Top Controls Bar -->
+      <div class="lightbox-top-bar" @click.stop>
+        <div class="lightbox-info">
+          <span class="lightbox-title">{{ lightboxTitle }}</span>
+          <span class="lightbox-counter" v-if="lightboxPhotos.length > 1">
+            {{ lightboxIndex + 1 }} / {{ lightboxPhotos.length }}
+          </span>
+        </div>
+        <div class="lightbox-actions">
+          <a 
+            v-if="currentLightboxPhoto" 
+            :href="currentLightboxPhoto" 
+            target="_blank" 
+            rel="noopener"
+            class="lightbox-btn" 
+            title="Открыть оригинал в новой вкладке"
+          >
+            ↗
+          </a>
+          <button 
+            type="button"
+            @click="closeLightbox" 
+            class="lightbox-btn lightbox-close" 
+            title="Закрыть (Esc)"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Photo Viewport -->
+      <div 
+        class="lightbox-main" 
+        @click="closeLightbox" 
+        @touchstart="handleTouchStart" 
+        @touchend="handleTouchEnd"
+      >
+        <!-- Prev Button -->
+        <button 
+          v-if="lightboxPhotos.length > 1" 
+          type="button"
+          @click.stop="prevPhoto" 
+          class="lightbox-nav-btn prev" 
+          title="Предыдущее фото (Стрелка влево)"
+        >
+          ‹
+        </button>
+
+        <!-- Current Full Image -->
+        <div class="lightbox-img-wrapper">
+          <img 
+            :src="currentLightboxPhoto" 
+            :alt="lightboxTitle" 
+            class="lightbox-img" 
+            @click.stop 
+            @error="handleImgError"
+          >
+        </div>
+
+        <!-- Next Button -->
+        <button 
+          v-if="lightboxPhotos.length > 1" 
+          type="button"
+          @click.stop="nextPhoto" 
+          class="lightbox-nav-btn next" 
+          title="Следующее фото (Стрелка вправо)"
+        >
+          ›
+        </button>
+      </div>
+
+      <!-- Bottom Thumbnail Strip -->
+      <div v-if="lightboxPhotos.length > 1" class="lightbox-thumbs-bar" @click.stop>
+        <div class="lightbox-thumbs-scroll">
+          <button 
+            v-for="(photo, idx) in lightboxPhotos" 
+            :key="idx" 
+            type="button"
+            class="lightbox-thumb-btn" 
+            :class="{ active: idx === lightboxIndex }"
+            @click="lightboxIndex = idx"
+            :title="'Перейти к фото ' + (idx + 1)"
+          >
+            <img :src="photo" class="lightbox-thumb-img" @error="handleImgError">
+          </button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- Vue 3 Application Logic -->
   <script>
-    const { createApp, ref, computed, onMounted } = Vue;
+    const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
 
     createApp({
       setup() {
@@ -831,6 +964,10 @@
         const showEditModal = ref(false);
         const showSyncModal = ref(false);
         const showScoreModal = ref(false);
+        const showLightbox = ref(false);
+        const lightboxPhotos = ref([]);
+        const lightboxIndex = ref(0);
+        const lightboxTitle = ref('');
         const scoreModalApt = ref(null);
         const activeApt = ref(null);
         const editForm = ref({});
@@ -1171,7 +1308,89 @@ alter publication supabase_realtime add table apartments;`;
           return 'low';
         };
 
+        // Fullscreen Photo Lightbox logic
+        const currentLightboxPhoto = computed(() => {
+          if (lightboxPhotos.value && lightboxPhotos.value.length > 0) {
+            return lightboxPhotos.value[lightboxIndex.value] || lightboxPhotos.value[0];
+          }
+          return '';
+        });
+
+        const openLightbox = (source, index = 0) => {
+          if (!source) return;
+          let photos = [];
+          let title = 'Фотографии квартиры';
+          if (Array.isArray(source)) {
+            photos = source;
+          } else if (typeof source === 'object') {
+            title = source.title || 'Фотографии квартиры';
+            if (source.photos && Array.isArray(source.photos) && source.photos.length > 0) {
+              photos = source.photos;
+            } else {
+              photos = [getCardPhoto(source)];
+            }
+          } else if (typeof source === 'string') {
+            photos = [source];
+          }
+          lightboxPhotos.value = photos;
+          lightboxIndex.value = Math.max(0, Math.min(index, photos.length - 1));
+          lightboxTitle.value = title;
+          showLightbox.value = true;
+          document.body.style.overflow = 'hidden';
+        };
+
+        const closeLightbox = () => {
+          showLightbox.value = false;
+          document.body.style.overflow = '';
+        };
+
+        const nextPhoto = () => {
+          if (lightboxPhotos.value.length <= 1) return;
+          lightboxIndex.value = (lightboxIndex.value + 1) % lightboxPhotos.value.length;
+        };
+
+        const prevPhoto = () => {
+          if (lightboxPhotos.value.length <= 1) return;
+          lightboxIndex.value = (lightboxIndex.value - 1 + lightboxPhotos.value.length) % lightboxPhotos.value.length;
+        };
+
+        const handleKeydown = (e) => {
+          if (!showLightbox.value) return;
+          if (e.key === 'Escape') {
+            closeLightbox();
+          } else if (e.key === 'ArrowLeft') {
+            prevPhoto();
+          } else if (e.key === 'ArrowRight') {
+            nextPhoto();
+          }
+        };
+
+        let touchStartX = 0;
+        let touchStartY = 0;
+        const handleTouchStart = (e) => {
+          if (e.touches && e.touches.length > 0) {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+          }
+        };
+
+        const handleTouchEnd = (e) => {
+          if (e.changedTouches && e.changedTouches.length > 0) {
+            const diffX = e.changedTouches[0].clientX - touchStartX;
+            const diffY = e.changedTouches[0].clientY - touchStartY;
+            if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 40) {
+              if (diffX > 0) {
+                prevPhoto();
+              } else {
+                nextPhoto();
+              }
+            }
+          }
+        };
+
         onMounted(async () => {
+          window.addEventListener('keydown', handleKeydown);
+
           // Initialize sync engine
           await window.syncEngine.init();
           isFlaskActive.value = (window.syncEngine.syncMode === 'local_flask');
@@ -1185,6 +1404,11 @@ alter publication supabase_realtime add table apartments;`;
 
           // Fetch initial apartments
           apartments.value = await window.syncEngine.getApartments();
+        });
+
+        onUnmounted(() => {
+          window.removeEventListener('keydown', handleKeydown);
+          document.body.style.overflow = '';
         });
 
         return {
@@ -1207,6 +1431,11 @@ alter publication supabase_realtime add table apartments;`;
           showEditModal,
           showSyncModal,
           showScoreModal,
+          showLightbox,
+          lightboxPhotos,
+          lightboxIndex,
+          lightboxTitle,
+          currentLightboxPhoto,
           scoreModalApt,
           activeApt,
           editForm,
@@ -1228,6 +1457,12 @@ alter publication supabase_realtime add table apartments;`;
           confirmDelete,
           openScoreModal,
           openSyncModal,
+          openLightbox,
+          closeLightbox,
+          nextPhoto,
+          prevPhoto,
+          handleTouchStart,
+          handleTouchEnd,
           saveCloudSettings,
           copyShareLink,
           exportBackup,
